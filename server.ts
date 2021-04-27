@@ -30,6 +30,7 @@ const http = require("http")
 const https = require("https")
 const fs = require("fs")
 const WebSocketServer = require("websocket").server
+import logger from "./logger"
 
 // Pathnames of the SSL key and certificate files to use for
 // HTTPS connections.
@@ -40,15 +41,16 @@ const certFilePath = "/etc/pki/tls/certs/mdn-samples.mozilla.org.crt"
 // Used for managing the text chat user list.
 
 let connectionArray: Array<any> = []
-var nextID = Date.now()
-var appendToMakeUnique = 1
+let nextID = Date.now()
+let appendToMakeUnique = 1
 
 // Output logging information to console
 
-function log(text: string) {
-    var time = new Date()
+const log = (text: string) => {
+    let time = new Date()
 
-    console.log("[" + time.toLocaleTimeString() + "] " + text)
+    // console.log("[" + time.toLocaleTimeString() + "] " + text)
+    logger.info({ message: text })
 }
 
 // If you want to implement support for blocking specific origins, this is
@@ -62,8 +64,8 @@ function originIsAllowed(origin: string) {
 // return true. Otherwise, returns false. We want all users to have unique
 // names.
 function isUsernameUnique(name: string) {
-    var isUnique = true
-    var i
+    let isUnique = true
+    let i
 
     for (i = 0; i < connectionArray.length; i++) {
         if (connectionArray[i].username === name) {
@@ -78,8 +80,8 @@ function isUsernameUnique(name: string) {
 // user, given their username. We use this for the WebRTC signaling,
 // and we could use it for private text messaging.
 function sendToOneUser(target: string, msgString: string) {
-    var isUnique = true
-    var i
+    let isUnique = true
+    let i
 
     for (i = 0; i < connectionArray.length; i++) {
         if (connectionArray[i].username === target) {
@@ -93,8 +95,8 @@ function sendToOneUser(target: string, msgString: string) {
 // clientID. Each login gets an ID that doesn't change during the session,
 // so it can be tracked across username changes.
 function getConnectionForID(id: string) {
-    var connect = null
-    var i
+    let connect = null
+    let i
 
     for (i = 0; i < connectionArray.length; i++) {
         if (connectionArray[i].clientID === id) {
@@ -110,17 +112,16 @@ function getConnectionForID(id: string) {
 // all connected users. Used to ramp up newly logged-in users and,
 // inefficiently, to handle name change notifications.
 function makeUserListMessage() {
-    var userListMsg = {
+    let userListMsg = {
         type: "userlist",
-        users : Array<string>(),
+        users: Array<string>(),
     }
-    var i
+    let i
 
     // Add the users to the list
 
     for (i = 0; i < connectionArray.length; i++) {
-
-      userListMsg.users.push(connectionArray[i].username)
+        userListMsg.users.push(connectionArray[i].username)
     }
 
     return userListMsg
@@ -131,9 +132,9 @@ function makeUserListMessage() {
 // efficient to send simple join/drop messages to each user, but this is
 // good enough for this simple example.
 function sendUserListToAll() {
-    var userListMsg = makeUserListMessage()
-    var userListMsgStr = JSON.stringify(userListMsg)
-    var i
+    let userListMsg = makeUserListMessage()
+    let userListMsgStr = JSON.stringify(userListMsg)
+    let i
 
     for (i = 0; i < connectionArray.length; i++) {
         connectionArray[i].send(userListMsgStr)
@@ -143,7 +144,7 @@ function sendUserListToAll() {
 // Try to load the key and certificate files for SSL so we can
 // do HTTPS (required for non-local WebRTC).
 
-var httpsOptions = {
+let httpsOptions = {
     key: null,
     cert: null,
 }
@@ -153,10 +154,12 @@ try {
     try {
         httpsOptions.cert = fs.readFileSync(certFilePath)
     } catch (err) {
+        logger.error(err)
         httpsOptions.key = null
         httpsOptions.cert = null
     }
 } catch (err) {
+    logger.error(err)
     httpsOptions.key = null
     httpsOptions.cert = null
 }
@@ -164,13 +167,14 @@ try {
 // If we were able to get the key and certificate files, try to
 // start up an HTTPS server.
 
-var webServer = null
+let webServer = null
 
 try {
     if (httpsOptions.key && httpsOptions.cert) {
         webServer = https.createServer(httpsOptions, handleWebRequest)
     }
 } catch (err) {
+    logger.error(err)
     webServer = null
 }
 
@@ -179,7 +183,9 @@ if (!webServer) {
         webServer = http.createServer({}, handleWebRequest)
     } catch (err) {
         webServer = null
-        log(`Error attempting to create HTTP(s) server: ${err.toString()}`)
+        logger.error(
+            `Error attempting to create HTTP(s) server: ${err.toString()}`
+        )
     }
 }
 
@@ -203,13 +209,13 @@ webServer.listen(6503, function () {
 
 // Create the WebSocket server by converting the HTTPS server into one.
 
-var wsServer = new WebSocketServer({
+let wsServer = new WebSocketServer({
     httpServer: webServer,
     autoAcceptConnections: false,
 })
 
 if (!wsServer) {
-    log("ERROR: Unable to create WbeSocket server!")
+    logger.error("Unable to create WbeSocket server!")
 }
 
 // Set up a "connect" message handler on our WebSocket server. This is
@@ -225,7 +231,7 @@ wsServer.on("request", (request: any) => {
 
     // Accept the request and get a connection.
 
-    var connection = request.accept("json", request.origin)
+    let connection = request.accept("json", request.origin)
 
     // Add the new connection to our list of connections.
 
@@ -258,9 +264,9 @@ wsServer.on("request", (request: any) => {
 
             // Process incoming data.
 
-            var sendToClients = true
+            let sendToClients = true
             msg = JSON.parse(message.utf8Data)
-            var connect = getConnectionForID(msg.id)
+            let connect = getConnectionForID(msg.id)
 
             // Take a look at the incoming object and act on it based
             // on its type. Unknown message types are passed through,
@@ -277,8 +283,8 @@ wsServer.on("request", (request: any) => {
 
                 // Username change
                 case "username":
-                    var nameChanged = false
-                    var origName = msg.name
+                    let nameChanged = false
+                    let origName = msg.name
 
                     // Ensure the name is unique by appending a number to it
                     // if it's not; keep trying that until it works.
@@ -292,7 +298,7 @@ wsServer.on("request", (request: any) => {
                     // message back to the user so they know their name has been
                     // altered by the server.
                     if (nameChanged) {
-                        var changeMsg = {
+                        let changeMsg = {
                             id: msg.id,
                             type: "rejectusername",
                             name: msg.name,
@@ -317,8 +323,8 @@ wsServer.on("request", (request: any) => {
             // exchange signaling and other control objects unimpeded.
 
             if (sendToClients) {
-                var msgString = JSON.stringify(msg)
-                var i
+                let msgString = JSON.stringify(msg)
+                let i
 
                 if (msg.target && msg.target.length !== 0) {
                     sendToOneUser(msg.target, msgString)
@@ -345,7 +351,7 @@ wsServer.on("request", (request: any) => {
 
         // Build and output log output for close information.
 
-        var logMessage =
+        let logMessage =
             "Connection closed: " + connection.remoteAddress + " (" + reason
         if (description !== null && description.length !== 0) {
             logMessage += ": " + description
